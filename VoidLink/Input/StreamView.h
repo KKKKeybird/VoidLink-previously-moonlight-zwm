@@ -13,7 +13,9 @@
 
 #import "ControllerSupport.h"
 #import "OnScreenControls.h"
+#if !TARGET_OS_TV
 #import "VoidLink-Swift.h"
+#endif
 #import "StreamConfiguration.h"
 
 @protocol UserInteractionDelegate <NSObject>
@@ -30,7 +32,7 @@
 @end
 
 #if TARGET_OS_TV
-@interface StreamView : UIView <X1KitMouseDelegate, UITextFieldDelegate>
+@interface StreamView : UIView <UITextFieldDelegate>
 #else
 @interface StreamView : UIView <X1KitMouseDelegate, UITextFieldDelegate, UIPointerInteractionDelegate, InputAccessoryBarDelegate>
 #endif
@@ -41,7 +43,9 @@
 @property (assign, nonatomic) CGRect originalFrame;
 @property (assign, nonatomic) bool widgetToolOpened;
 @property (strong, nonatomic) OnScreenControls* onScreenControls;
+#if !TARGET_OS_TV
 @property (weak, nonatomic) PencilHandler* pencilHandler;
+#endif
 
 - (void) setupStreamViewWithControllerSupport:(ControllerSupport*)controllerSupport
                           interactionDelegate:(id<UserInteractionDelegate>)interactionDelegate

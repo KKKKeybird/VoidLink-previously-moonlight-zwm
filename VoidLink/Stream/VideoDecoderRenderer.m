@@ -222,6 +222,14 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
     } else {
         _renderingBackend = RENDER_METAL;
+#if TARGET_OS_TV
+        // Metal has no legacy pull-renderer display link. Decode directly into
+        // FrameQueue even when an older stored TV setting requests legacy/off.
+        if (_framePacingMode == FramePacingModeLegacy || _framePacingMode == FramePacingModeOff) {
+            Log(LOG_I, @"Using queue pacing for Metal on tvOS");
+            _framePacingMode = FramePacingModeQueue;
+        }
+#endif
         // RENDER_METAL begins in StreamFrameViewController.
     }
 }
@@ -1074,6 +1082,11 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
                         [frame setFormatDesc:self->_formatDesc];
                     }
                     int framesDropped = [self->_frameQueue enqueue:frame withSlackSize:3];
+                    if (frameType == FRAME_TYPE_IDR) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            [self->_callbacks videoContentShown];
+                        });
+                    }
 
                     if ([[UIApplication sharedApplication] applicationState] != UIApplicationStateBackground) {
                         static PlotMetrics frameQueueMetrics = {};

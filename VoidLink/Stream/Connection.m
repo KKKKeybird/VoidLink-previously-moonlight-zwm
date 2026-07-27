@@ -663,7 +663,11 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     _streamConfig.bitrate = config.bitRate;
     _streamConfig.supportedVideoFormats = config.supportedVideoFormats;
     _streamConfig.audioConfiguration = config.audioConfiguration;
+#if TARGET_OS_TV
+    _streamConfig.redirectMic = false;
+#else
     _streamConfig.redirectMic = config.redirectMic && [MicHandler permissionGranted];
+#endif
     [Connection setVolume:config.localVolume];
     // Since we require iOS 12 or above, we're guaranteed to be running
     // on a 64-bit device with ARMv8 crypto instructions, so we don't
@@ -691,8 +695,18 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     _drCallbacks.cleanup = DrCleanup;
     // Use pull renderer for legacy and off frame pacing, direct submit for queue-based frame pacing
     DataManager* dataMan = [[DataManager alloc] init];
-    FramePacingMode framePacingMode = [[dataMan getSettings].framePacingMode integerValue];
-    if (framePacingMode == FramePacingModeLegacy || framePacingMode == FramePacingModeOff) {
+    TemporarySettings *connectionSettings = [dataMan getSettings];
+    FramePacingMode framePacingMode = [connectionSettings.framePacingMode integerValue];
+    BOOL requiresDirectSubmit = framePacingMode != FramePacingModeLegacy &&
+                                framePacingMode != FramePacingModeOff;
+#if TARGET_OS_TV
+    // The Metal renderer consumes decoded frames from FrameQueue. The legacy
+    // pull renderer is driven by an AVSampleBuffer-only CADisplayLink, so using
+    // it with Metal leaves every video frame stranded in moonlight-common.
+    requiresDirectSubmit = requiresDirectSubmit ||
+                           connectionSettings.renderingBackend.integerValue == RENDER_METAL;
+#endif
+    if (!requiresDirectSubmit) {
         _drCallbacks.capabilities = CAPABILITY_PULL_RENDERER |
                                     CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC |
                                     CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;

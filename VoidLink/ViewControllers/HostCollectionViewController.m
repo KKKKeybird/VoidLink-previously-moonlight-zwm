@@ -17,6 +17,14 @@ static const CGFloat cellOffsetY = 20;
     UIViewController* parentVC;
 }
 
+#if TARGET_OS_TV
+- (BOOL)canBecomeFocused {
+    // Let the visible controls inside HostCardView receive focus rather than
+    // focusing the collection cell as one opaque item.
+    return NO;
+}
+#endif
+
 - (void)prepareForReuse {
     [super prepareForReuse];
     [self.cardView removeFromSuperview];
@@ -184,9 +192,24 @@ static const CGFloat cellOffsetY = 20;
         _collectionViewHeightConstraint.constant = contentHeight;
     }
     
-    if([self numberOfRowsInCollectionView] == 1) layout.sectionInset = UIEdgeInsetsMake(50, _horizontalPadding, 0, _horizontalPadding);
-    else if([self numberOfRowsInCollectionView] == 2) layout.sectionInset = UIEdgeInsetsMake(17, _horizontalPadding, 0, _horizontalPadding);
+    NSInteger rowCount = [self numberOfRowsInCollectionView];
+#if TARGET_OS_TV
+    CGFloat availableWidth = self.collectionView.bounds.size.width;
+    CGFloat spacing = self.interItemMinimumSpacing;
+    NSInteger columns = MAX(1, floor((availableWidth + spacing) / (self.cellSize.width + spacing)));
+    NSInteger visibleColumns = MIN(self.items.count, columns);
+    CGFloat rowWidth = visibleColumns * self.cellSize.width + MAX(0, visibleColumns - 1) * spacing;
+    CGFloat centeredPadding = MAX(90.0, floor((availableWidth - rowWidth) / 2.0));
+    CGFloat topPadding = rowCount <= 1 ? 72.0 : 36.0;
+    UIEdgeInsets desiredInsets = UIEdgeInsetsMake(topPadding, centeredPadding, 24.0, centeredPadding);
+    if (!UIEdgeInsetsEqualToEdgeInsets(layout.sectionInset, desiredInsets)) {
+        layout.sectionInset = desiredInsets;
+    }
+#else
+    if(rowCount == 1) layout.sectionInset = UIEdgeInsetsMake(50, _horizontalPadding, 0, _horizontalPadding);
+    else if(rowCount == 2) layout.sectionInset = UIEdgeInsetsMake(17, _horizontalPadding, 0, _horizontalPadding);
     else layout.sectionInset = UIEdgeInsetsMake(10, _horizontalPadding, 0, _horizontalPadding);
+#endif
     //if(contentExceedsView) layout.sectionInset = UIEdgeInsetsMake(7, _horizontalPadding, 0, _horizontalPadding);
 }
 

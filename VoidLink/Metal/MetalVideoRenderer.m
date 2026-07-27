@@ -720,7 +720,7 @@ CFStringRef __currentColorSpace;
                 return;
             } else {
                 id<MTLTexture> texture = CVMetalTextureGetTexture(_cvMetalTextures[0]);
-                Log(LOG_I, @"DEBUG: Created BGRA texture: format=%lu, width=%zu, height=%zu",
+                LogOnce(LOG_I, @"Created BGRA Metal texture: format=%lu, width=%zu, height=%zu",
                     (unsigned long)MTLPixelFormatBGRA8Unorm,
                     CVPixelBufferGetWidth(frame.pixelBuffer),
                     CVPixelBufferGetHeight(frame.pixelBuffer));

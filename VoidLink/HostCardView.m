@@ -313,11 +313,24 @@ static const float REFRESH_CYCLE = 2.0f;
     self.launchButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.launchButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.launchButton.frame = CGRectMake(0, 0, 150, 50);
+#if TARGET_OS_TV
+    // Use the native tvOS capsule background instead of layering the focus
+    // effect over a separately rounded blue view. Mismatched masks otherwise
+    // leave blue corners visible around the white focused button.
+    UIButtonConfiguration *launchConfiguration = [UIButtonConfiguration filledButtonConfiguration];
+    launchConfiguration.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    launchConfiguration.baseBackgroundColor = defaultBlue;
+    launchConfiguration.baseForegroundColor = UIColor.whiteColor;
+    self.launchButton.configuration = launchConfiguration;
+    self.launchButton.backgroundColor = UIColor.clearColor;
+#else
     self.launchButton.backgroundColor = defaultBlue;
-    
     self.launchButton.layer.cornerRadius = 2*(uint16_t)(cardWidth*0.0377/2);
+#endif
     [self.launchButton setTitle:[LocalizationHelper localizedStringForKey:@"  Launch"] forState:UIControlStateNormal];
+#if !TARGET_OS_TV
     [self.launchButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal]; // theme
+#endif
     self.launchButton.titleLabel.font = [UIFont boldSystemFontOfSize:buttonLabelFontSize];
     self.launchButton.tintColor = [UIColor whiteColor];
     [self.launchButton addTarget:self action:@selector(launchButtonTapped) forControlEvents:UIControlEventPrimaryActionTriggered];
@@ -415,6 +428,12 @@ static const float REFRESH_CYCLE = 2.0f;
     [self.transparentButton setTitle:@"" forState:UIControlStateNormal];
     [self.transparentButton setImage:nil forState:UIControlStateNormal];
     [self.transparentButton addTarget:self action:@selector(appButtonTapped) forControlEvents:UIControlEventPrimaryActionTriggered];
+#if TARGET_OS_TV
+    // The invisible header button used for touch input otherwise becomes the
+    // first focus target and traps focus above the visible Pair/Wake buttons.
+    self.transparentButton.userInteractionEnabled = NO;
+    self.transparentButton.hidden = YES;
+#endif
     
     [self addSubview:self.transparentButton];
     [NSLayoutConstraint activateConstraints:@[
@@ -431,6 +450,24 @@ static const float REFRESH_CYCLE = 2.0f;
     
     [self updateTheme];
 }
+
+#if TARGET_OS_TV
+- (NSArray<id<UIFocusEnvironment>> *)preferredFocusEnvironments {
+    if (!self.pairButton.hidden && self.pairButton.enabled) {
+        return @[self.pairButton];
+    }
+    if (!self.wakeupButton.hidden && self.wakeupButton.enabled) {
+        return @[self.wakeupButton];
+    }
+    if (!self.appButton.hidden && self.appButton.enabled) {
+        return @[self.appButton];
+    }
+    if (!self.launchButton.hidden && self.launchButton.enabled) {
+        return @[self.launchButton];
+    }
+    return @[];
+}
+#endif
 
 - (void)updateBackgroundLayerTheme{
     UIColor *gradientColorDark = [UIColor colorWithRed:0.0 green:0.319 blue:0.64 alpha:1.0];
@@ -555,8 +592,17 @@ static const float REFRESH_CYCLE = 2.0f;
                     [self.launchButton setImage:[UIImage systemImageNamed:@"play.fill" withConfiguration:config] forState:UIControlStateNormal];
                 } else {
                 }
+#if TARGET_OS_TV
+                UIButtonConfiguration *launchConfiguration = _launchButton.configuration;
+                launchConfiguration.baseBackgroundColor = defaultBlue;
+                launchConfiguration.baseForegroundColor = UIColor.whiteColor;
+                launchConfiguration.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+                _launchButton.configuration = launchConfiguration;
+                _launchButton.backgroundColor = UIColor.clearColor;
+#else
                 _launchButton.backgroundColor = defaultBlue;
                 [_launchButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal]; // theme
+#endif
             }
             else {
                 _iconBackgroundView.backgroundColor = ThemeManager.appPrimaryColorWithAlpha;

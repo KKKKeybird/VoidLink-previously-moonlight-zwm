@@ -12,6 +12,10 @@
 #import "AppDelegate.h"
 #import "MainFrameViewController.h"
 #import "VoidLink-Swift.h"
+#if TARGET_OS_TV
+#import "TVSettingsStore.h"
+#import "TVSceneDelegate.h"
+#endif
 
 @implementation AppDelegate
 
@@ -22,18 +26,25 @@
 static NSOperationQueue* mainQueue;
 
 #if TARGET_OS_TV
-static NSString* DB_NAME = @"Moonlight_tvOS.bin";
+static NSString* DB_NAME = @"VoidLink_tvOS.bin";
 #else
 static NSString* DB_NAME = @"Limelight_iOS.sqlite";
 #endif
 
 #pragma mark - UISceneSession lifecycle
 
-- (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options API_AVAILABLE(ios(13.0)){
-    return [[UISceneConfiguration alloc] initWithName:@"Default Configuration" sessionRole:connectingSceneSession.role];
+- (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options API_AVAILABLE(ios(13.0), tvos(13.0)){
+    UISceneConfiguration* configuration = [[UISceneConfiguration alloc] initWithName:@"Default Configuration"
+                                                                          sessionRole:connectingSceneSession.role];
+#if TARGET_OS_TV
+    // The tvOS target has its own scene delegate. It creates the window
+    // explicitly so launching does not depend on an inferred scene manifest.
+    configuration.delegateClass = TVSceneDelegate.class;
+#endif
+    return configuration;
 }
 
-- (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions API_AVAILABLE(ios(13.0)){
+- (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions API_AVAILABLE(ios(13.0), tvos(13.0)){
 }
 
 
@@ -90,6 +101,15 @@ static NSString* DB_NAME = @"Limelight_iOS.sqlite";
 - (void)application:(UIApplication *)application performActionForShortcutItem:(UIApplicationShortcutItem *)shortcutItem completionHandler:(void (^)(BOOL succeeded))completionHandler {
     _pcUuidToLoad = (NSString*)[shortcutItem.userInfo objectForKey:@"UUID"];
     _shortcutCompletionHandler = completionHandler;
+}
+#endif
+
+#if TARGET_OS_TV
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    (void)application;
+    (void)launchOptions;
+    [TVSettingsStore.sharedStore registerDefaults];
+    return YES;
 }
 #endif
 

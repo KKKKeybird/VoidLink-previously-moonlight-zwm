@@ -79,11 +79,13 @@ import Foundation
         // 单一 gamepad.valueChangedHandler
         gamepad.valueChangedHandler = { gamepad, element in
             handler(buttonDict, gamepad, element)
+            #if os(iOS)
             if #available(iOS 13.0, *) {
                 if controller.playerIndex == .index1 {
                     GamepadOverlayStateCenter.shared.publish(snapshot: GamepadOverlaySnapshot(gamepad: gamepad))
                 }
             }
+            #endif
         }
     }
     
@@ -169,16 +171,19 @@ import Foundation
     @objc static var activeGCControllers:NSMutableSet = NSMutableSet()
     
     @objc static func string(for button: ControllerButton) -> String {
+        func localized(_ key: String) -> String {
+            Bundle.main.localizedString(forKey: key, value: key, table: nil)
+        }
         switch button {
         case .a: return "A"
         case .b: return "B"
         case .x: return "X"
         case .y: return "Y"
             
-        case .dpadUp: return LocalizationHelper.localizedString(forKey: "Up")
-        case .dpadDown: return LocalizationHelper.localizedString(forKey: "Down")
-        case .dpadLeft: return LocalizationHelper.localizedString(forKey: "Left")
-        case .dpadRight: return LocalizationHelper.localizedString(forKey: "Right")
+        case .dpadUp: return localized("Up")
+        case .dpadDown: return localized("Down")
+        case .dpadLeft: return localized("Left")
+        case .dpadRight: return localized("Right")
             
         case .leftShoulder: return "LB"
         case .rightShoulder: return "RB"
@@ -190,17 +195,17 @@ import Foundation
         case .back: return "Back"
         case .special: return "Home"
             
-        case .paddle1: return LocalizationHelper.localizedString(forKey: "Paddle1")
-        case .paddle2: return LocalizationHelper.localizedString(forKey: "Paddle2")
-        case .paddle3: return LocalizationHelper.localizedString(forKey: "Paddle3")
-        case .paddle4: return LocalizationHelper.localizedString(forKey: "Paddle4")
-        case .touchpadButton: return LocalizationHelper.localizedString(forKey: "Touch button")
+        case .paddle1: return localized("Paddle1")
+        case .paddle2: return localized("Paddle2")
+        case .paddle3: return localized("Paddle3")
+        case .paddle4: return localized("Paddle4")
+        case .touchpadButton: return localized("Touch button")
         case .misc: return "Misc"
             
         case .leftTrigger: return "LT"
         case .rightTrigger: return "RT"
             
-        case .null: return LocalizationHelper.localizedString(forKey: "Null")
+        case .null: return localized("Null")
             
         default: return "UNKNOWN"
         }
@@ -233,6 +238,7 @@ import Foundation
     }
 }
 
+#if os(iOS)
 @available(iOS 13.0, *)
 struct GamepadOverlaySnapshot: Equatable {
     var pressedButtons: Set<ControllerButton> = []
@@ -299,3 +305,4 @@ final class GamepadOverlayStateCenter: NSObject, ObservableObject {
         shared.publish(snapshot: .idle)
     }
 }
+#endif

@@ -10,6 +10,6 @@
 
 @interface AppAssetResponse : NSObject <Response>
 
-
+- (UIImage *)getImage;
 
 @end

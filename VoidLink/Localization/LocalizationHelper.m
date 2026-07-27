@@ -21,4 +21,8 @@
     return result;
 }
 
++ (NSString *)localizedStringForSwiftKey:(NSString *)key {
+    return NSLocalizedStringFromTable(key, @"Localizable", nil);
+}
+
 @end

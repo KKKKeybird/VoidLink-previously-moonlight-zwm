@@ -15,6 +15,7 @@
 #import "HttpManager.h"
 #import "Connection.h"
 #import "StreamManager.h"
+#import "StreamSessionCoordinator.h"
 #import "Utils.h"
 #import "UIAppView.h"
 #import "DataManager.h"
@@ -37,6 +38,8 @@
 #if !TARGET_OS_TV
 #import "SettingsViewController.h"
 #else
+#import "TVFeatureCapabilities.h"
+#import "TVSettingsViewController.h"
 #import <sys/utsname.h>
 #endif
 
@@ -58,6 +61,7 @@
     NSString* _uniqueId;
     NSData* _clientCert;
     DiscoveryManager* _discMan;
+    StreamSessionCoordinator* _sessionCoordinator;
     AppAssetManager* _appManager;
     StreamConfiguration* _streamConfig;
     UIAlertController* _pairAlert;
@@ -70,7 +74,11 @@
     bool _settingsViewExpanded;
     UIView* menuSeparator;
     UIView* snapshot;
+#if !TARGET_OS_TV
     SettingsViewController* settingsViewController;
+#else
+    id settingsViewController;
+#endif
     __weak StreamFrameViewController* streamFrameViewController;
     id navBarAppearanceStandard;
     bool _viewJustAppeared;
@@ -88,6 +96,29 @@
 #endif
 }
 static NSMutableSet* hostList;
+
+#if TARGET_OS_TV
+static UIAppView *VLTVAppViewForFocusedView(UIView *focusedView) {
+    UIView *candidate = focusedView;
+    while (candidate != nil && ![candidate isKindOfClass:UICollectionViewCell.class]) {
+        if ([candidate isKindOfClass:UIAppView.class]) {
+            return (UIAppView *)candidate;
+        }
+        candidate = candidate.superview;
+    }
+
+    if (![candidate isKindOfClass:UICollectionViewCell.class]) {
+        return nil;
+    }
+
+    for (UIView *subview in candidate.subviews) {
+        if ([subview isKindOfClass:UIAppView.class]) {
+            return (UIAppView *)subview;
+        }
+    }
+    return nil;
+}
+#endif
 
 - (void)startPairing:(NSString *)PIN {
     // Needs to be synchronous to ensure the alert is shown before any potential
@@ -148,6 +179,7 @@ static NSMutableSet* hostList;
 
 - (void)updateTitle {
 
+#if !TARGET_OS_TV
     if (@available(iOS 13.0, *)) {
         UINavigationBarAppearance* appearance = navBarAppearanceStandard;
         NSDictionary* titleTextAttributes = @{
@@ -157,6 +189,7 @@ static NSMutableSet* hostList;
         appearance.titleTextAttributes = titleTextAttributes;
         navBarAppearanceStandard = appearance;
     }
+#endif
 
     if (_selectedHost != nil) {
         self.title = _selectedHost.name;
@@ -166,6 +199,7 @@ static NSMutableSet* hostList;
         self.title = [LocalizationHelper localizedStringForKey: @"Searching for PCs on your network..."] ;
     }
     else {
+        #if !TARGET_OS_TV
         if (@available(iOS 13.0, *)) {
 
             UINavigationBarAppearance* appearance = navBarAppearanceStandard;
@@ -176,6 +210,7 @@ static NSMutableSet* hostList;
             appearance.titleTextAttributes = titleTextAttributes;
             navBarAppearanceStandard = appearance;
         }
+        #endif
         /*
         self.navigationController.navigationBar.titleTextAttributes = @{
             NSFontAttributeName: [UIFont systemFontOfSize:24 weight:UIFontWeightSemibold],
@@ -348,10 +383,18 @@ static NSMutableSet* hostList;
     
     // [self.collectionView removeFromSuperview]; // necessary for new scroll host view reloading mechanism
     self.hostCollectionVC.view.hidden = NO;
+#if TARGET_OS_TV
+    // MainFrameViewController is itself a UICollectionViewController. Hiding
+    // self.collectionView also hides the host picker embedded inside it.
+    self.collectionView.hidden = NO;
+#else
     self.collectionView.hidden = YES;
+#endif
     [self updateTitle];
     self.navigationItem.rightBarButtonItems = @[_helpButton, _addHostButton];
+#if !TARGET_OS_TV
     self.revealViewController.mainFrameIsInHostView = true;  // to allow orientation change only in app view, tell top view controller the mainframe is not in host view
+#endif
 }
 
 - (void) receivedAssetForApp:(TemporaryApp*)app {
@@ -388,7 +431,9 @@ static NSMutableSet* hostList;
     
     [self attachWaterMark];
     self.navigationItem.rightBarButtonItems = @[_upButton];
+#if !TARGET_OS_TV
     self.revealViewController.mainFrameIsInHostView = false;  
+#endif
     // [self disableNavigation];
     [self updateTitle];
     [self alreadyPaired];
@@ -409,7 +454,9 @@ static NSMutableSet* hostList;
 - (void)launchButtonTappedForHost:(TemporaryHost *)host {
     _selectedHost = host;
     if (host.state == StateOnline && host.pairState == PairStatePaired && host.appList.count > 0) {
+#if !TARGET_OS_TV
         [self closeSettingViewAnimated:NO];
+#endif
         // [self switchToAppView];
         [self updateAppsForHost:_selectedHost];
         [self prepareToStreamApp:_sortedAppList.firstObject];
@@ -496,8 +543,10 @@ static NSMutableSet* hostList;
                     Log(LOG_I, @"Trying to pairTrying to pair");
                     // Polling the server while pairing causes the server to screw up
                     [self->_discMan stopDiscoveryBlocking];
-                    PairManager* pMan = [[PairManager alloc] initWithManager:hMan clientCert:self->_clientCert callback:self];
-                    [self->_opQueue addOperation:pMan];
+                    [self->_sessionCoordinator enqueuePairingWithHTTPManager:hMan
+                                                                  clientCert:self->_clientCert
+                                                                    callback:self
+                                                              operationQueue:self->_opQueue];
 
             }
         });
@@ -511,8 +560,6 @@ static NSMutableSet* hostList;
     //_appManager = [[AppAssetManager alloc] initWithCallback:self];
     [self.collectionView setCollectionViewLayout:self.collectionViewLayout];
     [self.collectionView reloadData]; //for new scroll host view reloading mechanism
-    [self.view addSubview:self.collectionView]; //for new scroll host view reloading mechanism
-    
 #if TARGET_OS_TV
     // Intercept the menu key to go back to the host page
     [self.navigationController.view addGestureRecognizer:_menuRecognizer];
@@ -787,7 +834,7 @@ static NSMutableSet* hostList;
 }
 
 - (void) prepareToStreamApp:(TemporaryApp *)app {
-    
+#if !TARGET_OS_TV
     self.navigationController.navigationBar.hidden = true;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         self.navigationController.navigationBar.hidden = false;
@@ -796,6 +843,9 @@ static NSMutableSet* hostList;
     launchedApp = app;
     [self updateResolutionAccordingly];
     self.revealViewController.isStreaming = true; // tell the revealViewController streaming is started.
+#else
+    launchedApp = app;
+#endif
     _streamConfig = [[StreamConfiguration alloc] init];
     _streamConfig.host = app.host.activeAddress;
     _streamConfig.httpsPort = app.host.httpsPort;
@@ -811,7 +861,7 @@ static NSMutableSet* hostList;
     TemporarySettings* streamSettings = [dataMan getSettings];
     
     _streamConfig.frameRate = [streamSettings.framerate intValue];
-    if (@available(iOS 10.3, *)) {
+    if (@available(iOS 10.3, tvOS 10.2, *)) {
         UIWindow *window = UIApplication.sharedApplication.windows.firstObject;
         NSInteger maximumFramesPerSecond = window.screen.maximumFramesPerSecond;
         if(UIScreen.screens.count > 1 && streamSettings.externalDisplayMode.intValue == 1){ //AirPlaying
@@ -860,10 +910,12 @@ static NSMutableSet* hostList;
     // Probe for supported channel configurations
     int physicalOutputChannels = (int)[AVAudioSession sharedInstance].maximumOutputNumberOfChannels;
     Log(LOG_I, @"Audio device supports %d channels", physicalOutputChannels);
-    if (@available(iOS 18.0, tvOS 18.0, *)) {
+#if !TARGET_OS_TV
+    if (@available(iOS 18.0, *)) {
         physicalOutputChannels = 8;
         Log(LOG_I, @"System-provided spatial audio available, pretending device has %d channels", physicalOutputChannels);
     }
+#endif
 
     int numberOfChannels = MIN([streamSettings.audioConfig intValue], physicalOutputChannels);
     
@@ -948,6 +1000,8 @@ static NSMutableSet* hostList;
         }
     }
 #endif
+
+    [_sessionCoordinator finalizeStreamConfiguration:_streamConfig settings:streamSettings];
 }
 
 - (NSInteger)requestForBitrate:(NSInteger)bitrateKbps{
@@ -1122,6 +1176,18 @@ static NSMutableSet* hostList;
 
 - (void) appClicked:(TemporaryApp *)app view:(UIView *)view {
     Log(LOG_D, @"Clicked app: %@", app.name);
+
+#if TARGET_OS_TV
+    NSError *controllerError = nil;
+    if (![_sessionCoordinator canStartStreamingWithError:&controllerError]) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"需要实体手柄"
+                                                                       message:controllerError.localizedDescription
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+#endif
     
     [_appManager stopRetrieving];
     
@@ -1545,6 +1611,13 @@ static NSMutableSet* hostList;
 }
 
 - (void)helpButtonTapped{
+#if TARGET_OS_TV
+    UIAlertController *about = [UIAlertController alertControllerWithTitle:@"VoidLink TV"
+                                                                    message:@"专为 Apple TV 和实体手柄优化的 Moonlight／Sunshine 串流客户端。"
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+    [about addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:about animated:YES completion:nil];
+#else
     if (@available(iOS 13.0, *)) {
         AboutViewController *aboutVC = [[AboutViewController alloc] init];
         aboutVC.modalPresentationStyle = UIModalPresentationFormSheet;
@@ -1552,9 +1625,20 @@ static NSMutableSet* hostList;
     } else {
         // Fallback on earlier versions
     }
+#endif
 }
 
 - (void)applyNavBarAppearance{
+#if TARGET_OS_TV
+    // UINavigationBarAppearance still raises an exception on tvOS even though
+    // its symbols are present in the SDK. Keep TV customization on the legacy
+    // properties.
+    self.navigationController.navigationBar.translucent = NO;
+    self.navigationController.navigationBar.barTintColor = ThemeManager.hostViewBackgroundColor;
+    self.navigationController.navigationBar.titleTextAttributes = @{
+        NSForegroundColorAttributeName: UIColor.whiteColor
+    };
+#else
     if (@available(iOS 13.0, *)) {
         self.navigationController.navigationBar.standardAppearance.backgroundColor = [UIColor clearColor]; // old ios depend on this, do not remove
         self.navigationController.navigationBar.standardAppearance = navBarAppearanceStandard;
@@ -1565,6 +1649,7 @@ static NSMutableSet* hostList;
         self.navigationController.navigationBar.barTintColor = [UIColor clearColor]; // ios 14 depend on this, do not remove
         self.navigationController.navigationBar.barTintColor = ThemeManager.hostViewBackgroundColor; // ios 14 depend on this, do not remove
     }
+#endif
 }
 
 - (void)setupNavBar{
@@ -1643,10 +1728,12 @@ static NSMutableSet* hostList;
         [_profilesButton setTitle:[LocalizationHelper localizedStringForKey:@"Game Profile"]];
     }
     
+#if !TARGET_OS_TV
     if (@available(iOS 26.0, *)) {
          _settingsButton.sharesBackground = false;
          _profilesButton.sharesBackground = false;
      }
+#endif
 
     
     
@@ -1781,9 +1868,26 @@ static NSMutableSet* hostList;
     // if the user drags all the way off the screen opposite the settings pane.
     self.revealViewController.bounceBackOnOverdraw = NO;
 #else
-    // The settings button will direct the user into the Settings app on tvOS
+    [self applyNavBarAppearance];
+
+    // Use native tvOS bar items. Custom UIButton bar items wired to
+    // UIControlEventTouchUpInside are not reliably focus-activated on tvOS.
     [_settingsButton setTarget:self];
     [_settingsButton setAction:@selector(openTvSettings:)];
+    [_settingsButton setTitle:@"设置"];
+    _addHostButton = [[UIBarButtonItem alloc] initWithTitle:@"添加主机"
+                                                      style:UIBarButtonItemStylePlain
+                                                     target:self
+                                                     action:@selector(addHostTapped)];
+    _helpButton = [[UIBarButtonItem alloc] initWithTitle:@"关于"
+                                                   style:UIBarButtonItemStylePlain
+                                                  target:self
+                                                  action:@selector(helpButtonTapped)];
+    _upButton = [[UIBarButtonItem alloc] initWithTitle:@"主机"
+                                                 style:UIBarButtonItemStylePlain
+                                                target:self
+                                                action:@selector(switchToHostView)];
+    self.navigationItem.rightBarButtonItems = @[_helpButton, _addHostButton];
     
     // Restore focus on the selected app on view controller pop navigation
     self.restoresFocusAfterTransition = NO;
@@ -1832,7 +1936,9 @@ static NSMutableSet* hostList;
     
     [self retrieveSavedHosts];
 
-    _discMan = [[DiscoveryManager alloc] initWithHosts:[hostList allObjects] andCallback:self];
+    _sessionCoordinator = [[StreamSessionCoordinator alloc] initWithHosts:[hostList allObjects]
+                                                        discoveryCallback:self];
+    _discMan = _sessionCoordinator.discoveryManager;
 
 
     //if([SettingsViewController isLandscapeNow] != _streamConfig.width > _streamConfig.height)
@@ -1843,6 +1949,7 @@ static NSMutableSet* hostList;
     // SettingsViewController* settingsViewController = (SettingsViewController*)[self.revealViewController rearViewController];
     // [settingsViewController updateResolutionTable];
     
+#if !TARGET_OS_TV
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleMenuResize:)];
     longPress.delaysTouchesBegan = false;
     longPress.delaysTouchesEnded = false;
@@ -1853,6 +1960,7 @@ static NSMutableSet* hostList;
     SettingsViewController *viewController = [storyboard instantiateViewControllerWithIdentifier:@"settingsViewController"];
     // 强制加载视图
     __unused UIView *view = viewController.view;
+#endif
     
     snapshot = nil;
     
@@ -1875,13 +1983,14 @@ static NSMutableSet* hostList;
         [self unregisterControllerCallbacks:controller];
     }];
     
+#if !TARGET_OS_TV
     [self prewarmSoftKeyboard];
-        
     [self changeDefaultSettings];
     [self updatePartialSettings];
     
     [IAPManager.shared fetchProducts];
     [GenericUtils handleAddOnProductPurchaseIntentFor:AddOnProductPencilProPack];
+#endif
 
     /*
     if (@available(iOS 15.0, *)) {
@@ -2006,7 +2115,10 @@ static NSMutableSet* hostList;
 
 - (void)openTvSettings:(id)sender
 {
-    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:nil];
+    (void)sender;
+    TVSettingsViewController *settings = [[TVSettingsViewController alloc] initWithStyle:UITableViewStyleGrouped];
+    UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:settings];
+    [self presentViewController:navigation animated:YES completion:nil];
 }
 #endif
 
@@ -2123,7 +2235,9 @@ static NSMutableSet* hostList;
     //[self simulateSettingsButtonPress]; //force reload resolution table in the setting
     //[self simulateSettingsButtonPress];
     [self updateResolutionAccordingly];
+#if !TARGET_OS_TV
     if([self needPopupAboutView])[self helpButtonTapped];
+#endif
 }
 
 - (void)viewWillDisappear:(BOOL)animated{
@@ -2144,11 +2258,13 @@ static NSMutableSet* hostList;
 
     /* this makes background color works*/
     
+#if !TARGET_OS_TV
     if(!_settingsViewExpanded){
         for (UIView *subview in self.view.subviews) {
             [subview removeFromSuperview]; // 暂时移除所有子视图
         }
     }
+#endif
     
     // We can get here on home press while streaming
     // since the stream view segues to us just before
@@ -2162,8 +2278,12 @@ static NSMutableSet* hostList;
     // view, so we won't get a return to active notification
     // for that which would normally fire beginForegroundRefresh.
     
+#if !TARGET_OS_TV
     [self.view addSubview:self.collectionView];
-    [self initHostCollection];
+#endif
+    if (self.hostCollectionVC == nil) {
+        [self initHostCollection];
+    }
     if(!_enteredAppView) [self switchToHostView];
     
     [self updateTheme];
@@ -2290,7 +2410,19 @@ static NSMutableSet* hostList;
     }
     
     CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)imageData, NULL);
+    if (source == NULL || CGImageSourceGetCount(source) == 0) {
+        [[NSFileManager defaultManager] removeItemAtPath:[AppAssetManager boxArtPathForApp:app] error:nil];
+        if (source != NULL) {
+            CFRelease(source);
+        }
+        return nil;
+    }
     CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil);
+    if (cgImage == NULL) {
+        [[NSFileManager defaultManager] removeItemAtPath:[AppAssetManager boxArtPathForApp:app] error:nil];
+        CFRelease(source);
+        return nil;
+    }
     
     size_t width = CGImageGetWidth(cgImage);
     size_t height = CGImageGetHeight(cgImage);
@@ -2348,11 +2480,22 @@ static NSMutableSet* hostList;
 }
 
 - (bool)isInAppView{
+#if TARGET_OS_TV
+    return _enteredAppView;
+#else
     return !self.revealViewController.isStreaming && _enteredAppView;
+#endif
 }
 
 - (bool)isStreaming{
+#if TARGET_OS_TV
+    // MainFrameViewController is not visible while the dedicated stream
+    // controller is active on tvOS. There is no SWRevealViewController in the
+    // TV storyboard, so querying its iOS-only streaming flag would crash.
+    return false;
+#else
     return self.revealViewController.isStreaming;
+#endif
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
@@ -2392,8 +2535,13 @@ static NSMutableSet* hostList;
                   layout:(UICollectionViewLayout *)collectionViewLayout
   sizeForItemAtIndexPath:(NSIndexPath *)indexPath {
     CGSize cellSize;
+#if TARGET_OS_TV
+    cellSize.height = 0.34 * MIN(CGRectGetHeight(UIScreen.mainScreen.bounds),
+                                 CGRectGetWidth(UIScreen.mainScreen.bounds));
+#else
     if([self isIPhone]) cellSize.height = 0.365*MIN(CGRectGetHeight([[UIScreen mainScreen] bounds]),CGRectGetWidth([[UIScreen mainScreen] bounds]));
     else cellSize.height = 0.272*MIN(CGRectGetHeight([[UIScreen mainScreen] bounds]),CGRectGetWidth([[UIScreen mainScreen] bounds]));
+#endif
     TemporaryApp* app = _sortedAppList[indexPath.row];
     UIAppView* appView = [[UIAppView alloc] initWithApp:app cache:_boxArtCache andCallback:self];
 
@@ -2404,6 +2552,32 @@ static NSMutableSet* hostList;
 
     return cellSize;
 }
+
+#if TARGET_OS_TV
+- (UIEdgeInsets)collectionView:(UICollectionView *)collectionView
+                        layout:(UICollectionViewLayout *)collectionViewLayout
+        insetForSectionAtIndex:(NSInteger)section {
+    (void)section;
+    if (!_enteredAppView || _sortedAppList.count == 0) {
+        return UIEdgeInsetsZero;
+    }
+
+    CGFloat itemHeight = 0.34 * MIN(CGRectGetHeight(UIScreen.mainScreen.bounds),
+                                    CGRectGetWidth(UIScreen.mainScreen.bounds));
+    CGFloat itemWidth = itemHeight * (200.0 / 265.0);
+    CGFloat spacing = 60.0;
+    if ([collectionViewLayout isKindOfClass:UICollectionViewFlowLayout.class]) {
+        spacing = MAX(spacing, ((UICollectionViewFlowLayout *)collectionViewLayout).minimumInteritemSpacing);
+    }
+    NSInteger columns = MAX(1, floor((collectionView.bounds.size.width + spacing) / (itemWidth + spacing)));
+    NSInteger visibleColumns = MIN((NSInteger)_sortedAppList.count, columns);
+    CGFloat rowWidth = visibleColumns * itemWidth + MAX(0, visibleColumns - 1) * spacing;
+    // Keep a little rounding slack so the flow layout doesn't wrap the last
+    // tile when the mathematically centered row lands on a fractional pixel.
+    CGFloat sideInset = MAX(90.0, floor((collectionView.bounds.size.width - rowWidth) / 2.0) - 24.0);
+    return UIEdgeInsetsMake(72.0, sideInset, 48.0, sideInset);
+}
+#endif
 
 - (NSInteger)numberOfSectionsInCollectionView:(UICollectionView *)collectionView {
     return 1; // App collection only
@@ -2483,11 +2657,13 @@ static NSMutableSet* hostList;
         [dataMan saveData];
 
 
+#if !TARGET_OS_TV
         double delayInSeconds = 0.02;
         dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delayInSeconds * NSEC_PER_SEC));
         dispatch_after(popTime, dispatch_get_main_queue(), ^{
             [self->settingsViewController hideDynamicLabelsWhenOverlapped:self->settingsViewController.parentStack];
         });
+#endif
     }
 }
 
@@ -2550,7 +2726,14 @@ static NSMutableSet* hostList;
 
 - (void)didUpdateFocusInContext:(UIFocusUpdateContext *)context withAnimationCoordinator:(UIFocusAnimationCoordinator *)coordinator {
     
-#if !TARGET_OS_TV
+#if TARGET_OS_TV
+    UIAppView *previousAppView = VLTVAppViewForFocusedView(context.previouslyFocusedView);
+    UIAppView *nextAppView = VLTVAppViewForFocusedView(context.nextFocusedView);
+    if (previousAppView != nextAppView) {
+        [previousAppView setTVFocused:NO coordinator:coordinator];
+        [nextAppView setTVFocused:YES coordinator:coordinator];
+    }
+#else
     if (context.nextFocusedView != nil) {
         [context.nextFocusedView setAlpha:0.8];
     }
@@ -2561,8 +2744,15 @@ static NSMutableSet* hostList;
 
 - (CGSize)getHostCardSize{
     CGSize cardSize;
+#if TARGET_OS_TV
+    // TV cards must be readable from viewing distance while still allowing a
+    // useful multi-host grid on a 1080p canvas.
+    cardSize.height = MIN(390.0, 0.35 * MIN(CGRectGetHeight(UIScreen.mainScreen.bounds),
+                                           CGRectGetWidth(UIScreen.mainScreen.bounds)));
+#else
     if([self isIPhone]) cardSize.height = 0.37*MIN(CGRectGetHeight([[UIScreen mainScreen] bounds]),CGRectGetWidth([[UIScreen mainScreen] bounds]));
     else cardSize.height = 0.25*MIN(CGRectGetHeight([[UIScreen mainScreen] bounds]),CGRectGetWidth([[UIScreen mainScreen] bounds]));
+#endif
     TemporaryHost* dummyHost = [[TemporaryHost alloc] init];
     HostCardView* dummyCard = [[HostCardView alloc] initWithHost:dummyHost];
     cardSize.width = cardSize.height * (dummyCard.size.width/dummyCard.size.height);

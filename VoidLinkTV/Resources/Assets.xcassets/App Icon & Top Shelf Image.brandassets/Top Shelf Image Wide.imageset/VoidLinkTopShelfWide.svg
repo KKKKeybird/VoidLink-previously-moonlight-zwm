@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2320" height="720" viewBox="0 0 2320 720">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#07111f"/><stop offset="1" stop-color="#153b5d"/></linearGradient>
+    <linearGradient id="link" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ee7ff"/><stop offset="1" stop-color="#7a7cff"/></linearGradient>
+  </defs>
+  <rect width="2320" height="720" fill="url(#bg)"/>
+  <circle cx="430" cy="360" r="162" fill="none" stroke="url(#link)" stroke-width="46"/>
+  <path d="M364 360h132M430 294v132" stroke="#fff" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="520" cy="324" r="18" fill="#fff"/><circle cx="558" cy="364" r="18" fill="#fff"/>
+  <text x="735" y="335" fill="#fff" font-family="-apple-system,Helvetica Neue,Arial" font-size="142" font-weight="700">VoidLink</text>
+  <text x="743" y="438" fill="#a8c8df" font-family="-apple-system,Helvetica Neue,Arial" font-size="48" letter-spacing="8">PLAY WITHOUT BOUNDARIES</text>
+</svg>

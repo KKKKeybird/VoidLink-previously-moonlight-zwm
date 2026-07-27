@@ -2,22 +2,22 @@
   "images" : [
     {
       "idiom" : "tv",
-      "filename" : "topshelf-wide@1.png",
+      "filename" : "VoidLinkTopShelfWide.svg",
       "scale" : "1x"
     },
     {
       "idiom" : "tv",
-      "filename" : "topshelf-wide@2.png",
+      "filename" : "VoidLinkTopShelfWide@2x.svg",
       "scale" : "2x"
     },
     {
       "idiom" : "tv-marketing",
-      "filename" : "topshelf-wide@1-1.png",
+      "filename" : "VoidLinkTopShelfWide.svg",
       "scale" : "1x"
     },
     {
       "idiom" : "tv-marketing",
-      "filename" : "topshelf-wide@2-1.png",
+      "filename" : "VoidLinkTopShelfWide@2x.svg",
       "scale" : "2x"
     }
   ],

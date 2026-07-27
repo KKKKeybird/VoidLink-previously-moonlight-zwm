@@ -11,6 +11,10 @@
 
 #import "TemporarySettings.h"
 #import "OnScreenControls.h"
+#if TARGET_OS_TV
+#import "TVFeatureCapabilities.h"
+#import "TVSettingsStore.h"
+#endif
 
 @implementation TemporarySettings
 
@@ -20,64 +24,74 @@
     self.parent = settings;
     
 #if TARGET_OS_TV
-    // Apply default values from our Root.plist
-    NSString* settingsBundle = [[NSBundle mainBundle] pathForResource:@"Settings" ofType:@"bundle"];
-    NSDictionary* settingsData = [NSDictionary dictionaryWithContentsOfFile:[settingsBundle stringByAppendingPathComponent:@"Root.plist"]];
-    NSArray* preferences = [settingsData objectForKey:@"PreferenceSpecifiers"];
-    NSMutableDictionary* defaultsToRegister = [[NSMutableDictionary alloc] initWithCapacity:[preferences count]];
-    for (NSDictionary* prefSpecification in preferences) {
-        NSString* key = [prefSpecification objectForKey:@"Key"];
-        if (key != nil) {
-            [defaultsToRegister setObject:[prefSpecification objectForKey:@"DefaultValue"] forKey:key];
-        }
+    TVSettingsStore *store = TVSettingsStore.sharedStore;
+    self.bitrate = @([store integerForKey:VLTVSettingBitrate]);
+    self.framerate = @(MIN([store integerForKey:VLTVSettingFramerate],
+                           TVFeatureCapabilities.maximumFramesPerSecond));
+    self.audioConfig = @(MIN([store integerForKey:VLTVSettingAudioConfig],
+                             TVFeatureCapabilities.maximumAudioChannels));
+    self.preferredCodec = (typeof(self.preferredCodec))[store integerForKey:VLTVSettingPreferredCodec];
+    if (self.preferredCodec == CODEC_PREF_AV1 && !TVFeatureCapabilities.supportsAV1HardwareDecoding) {
+        self.preferredCodec = CODEC_PREF_AUTO;
     }
-    [[NSUserDefaults standardUserDefaults] registerDefaults:defaultsToRegister];
-    
-    self.bitrate = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"bitrate"]];
-    assert([self.bitrate intValue] != 0);
-    self.framerate = [NSNumber numberWithDouble:[[NSUserDefaults standardUserDefaults] doubleForKey:@"framerate"]];
-    assert([self.framerate doubleValue] != 0.0);
-    self.audioConfig = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"audioConfig"]];
-    assert([self.audioConfig intValue] != 0);
-    self.preferredCodec = (typeof(self.preferredCodec))[[NSUserDefaults standardUserDefaults] integerForKey:@"preferredCodec"];
-    self.enableYUV444 = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableYUV444"];
-    self.enablePIP = [[NSUserDefaults standardUserDefaults] boolForKey:@"enablePIP"];
-    self.fullRange = [[NSUserDefaults standardUserDefaults] boolForKey:@"fullRange"];
-    self.frameQueueSize = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"frameQueueSize"]];
-    self.playAudioOnPC = [[NSUserDefaults standardUserDefaults] boolForKey:@"audioOnPC"];
-    self.enableHdr = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableHdr"];
-    self.optimizeGames = [[NSUserDefaults standardUserDefaults] boolForKey:@"optimizeGames"];
-    self.multiController = [[NSUserDefaults standardUserDefaults] boolForKey:@"multipleControllers"];
-    self.swapABXYButtons = [[NSUserDefaults standardUserDefaults] boolForKey:@"swapABXYButtons"];
-    self.btMouseSupport = [[NSUserDefaults standardUserDefaults] boolForKey:@"btMouseSupport"];
-    self.statsOverlay = [[NSUserDefaults standardUserDefaults] boolForKey:@"statsOverlay"];
-    self.enableGraphs = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableGraphs"];
-    self.graphOpacity = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"graphOpacity"]];
-    self.renderingBackend = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"renderingBackend"]];
-    self.framePacingMode = [NSNumber numberWithInteger:[[NSUserDefaults standardUserDefaults] integerForKey:@"framePacingMode"]];
+    self.enableYUV444 = [store boolForKey:VLTVSettingEnableYUV444];
+    self.enablePIP = NO;
+    self.fullColorRange = [store boolForKey:VLTVSettingFullColorRange];
+    self.frameQueueSize = @([store integerForKey:VLTVSettingFrameQueueSize]);
+    self.playAudioOnPC = [store boolForKey:VLTVSettingPlayAudioOnPC];
+    self.enableHdr = TVFeatureCapabilities.supportsHDR && [store boolForKey:VLTVSettingEnableHDR];
+    self.optimizeGames = [store boolForKey:VLTVSettingOptimizeGames];
+    self.multiController = [store boolForKey:VLTVSettingMultipleControllers];
+    self.swapABXYButtons = [store boolForKey:VLTVSettingSwapABXY];
+    self.buttonVisualFeedback = [store boolForKey:VLTVSettingButtonFeedback];
+    self.gyroMode = @([store integerForKey:VLTVSettingGyroMode]);
+    self.emulatedControllerType = @([store integerForKey:VLTVSettingEmulatedControllerType]);
+    self.statsOverlayLevel = @([store integerForKey:VLTVSettingStatsOverlayLevel]);
+    self.statsOverlayEnabled = self.statsOverlayLevel.integerValue != 0;
+    self.enableGraphs = [store boolForKey:VLTVSettingEnableGraphs];
+    self.graphOpacity = @100;
+    self.renderingBackend = @([store integerForKey:VLTVSettingRenderingBackend]);
+    self.framePacingMode = @([store integerForKey:VLTVSettingFramePacingMode]);
+    self.mapControllerToMouse = [store boolForKey:VLTVSettingMapControllerToMouse];
+    self.controllerMousePointerVelocity = @([store integerForKey:VLTVSettingControllerMouseVelocity]);
+    self.controllerMouseExpo = @([store integerForKey:VLTVSettingControllerMouseExpo]);
 
-    NSInteger _screenSize = [[NSUserDefaults standardUserDefaults] integerForKey:@"streamResolution"];
+    // Features that rely on touch, a physical pointer, microphone capture, or
+    // background playback are deliberately unavailable on tvOS.
+    self.redirectMic = NO;
+    self.useBuiltinMic = NO;
+    self.btMouseSupport = NO;
+    self.touchPointTracking = NO;
+    self.enablePinch = NO;
+    self.passthroughGestures = NO;
+    self.onscreenControls = @(OnScreenControlsLevelOff);
+
+    NSInteger _screenSize = [store integerForKey:VLTVSettingResolution];
+    if (_screenSize == VLTVResolution4K && !TVFeatureCapabilities.supports4K) {
+        _screenSize = VLTVResolution1080p;
+    }
     switch (_screenSize) {
-        case 0:
-            self.height = [NSNumber numberWithInteger:720];
-            self.width = [NSNumber numberWithInteger:1280];
+        case VLTVResolution720p:
+            self.height = @720;
+            self.width = @1280;
             break;
-        case 1:
-            self.height = [NSNumber numberWithInteger:1080];
-            self.width = [NSNumber numberWithInteger:1920];
+        case VLTVResolution1080p:
+            self.height = @1080;
+            self.width = @1920;
             break;
-        case 2:
-            self.height = [NSNumber numberWithInteger:2160];
-            self.width = [NSNumber numberWithInteger:3840];
+        case VLTVResolution4K:
+            self.height = @2160;
+            self.width = @3840;
             break;
-        case 3:
-            self.height = [NSNumber numberWithInteger:1440];
-            self.width = [NSNumber numberWithInteger:2560];
+        case VLTVResolution1440p:
+            self.height = @1440;
+            self.width = @2560;
             break;
         default:
-            abort();
+            self.height = @1080;
+            self.width = @1920;
+            break;
     }
-    self.onscreenControls = [NSNumber numberWithInteger:OnScreenControlsLevelOff];
 #else
     self.settingsMenuMode = settings.settingsMenuMode;
     self.settingsMenuWidth = settings.settingsMenuWidth;

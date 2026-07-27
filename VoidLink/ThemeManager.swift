@@ -62,6 +62,9 @@ class ThemeManager: NSObject {
             )
             
         default:
+            #if os(tvOS)
+            return UIColor(white: 0.10, alpha: 1)
+            #else
             if #available(iOS 13.0, *) {
                 let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
                 return UIColor.secondarySystemBackground.resolvedColor(with: darkTraits)
@@ -73,6 +76,7 @@ class ThemeManager: NSObject {
                     alpha: 1
                 )
             }
+            #endif
         }
     }
     
@@ -89,12 +93,16 @@ class ThemeManager: NSObject {
             )
             
         default:
+            #if os(tvOS)
+            return UIColor.black
+            #else
             if #available(iOS 13.0, *) {
                 let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
                 return UIColor.systemGroupedBackground.resolvedColor(with: darkTraits)
             } else {
                 return UIColor.black
             }
+            #endif
         }
     }
     
@@ -127,6 +135,9 @@ class ThemeManager: NSObject {
         case .light:
             return UIColor.white
         default:
+            #if os(tvOS)
+            return UIColor(white: 0.17, alpha: 1)
+            #else
             if #available(iOS 13.0, *) {
                 // return UIColor.secondarySystemBackground
                 let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
@@ -139,6 +150,7 @@ class ThemeManager: NSObject {
                     alpha: 1
                 )
             }
+            #endif
         }
     }
     
@@ -302,17 +314,24 @@ class ThemeManager: NSObject {
         )
     }
     
-    @available(iOS 26.0, *)
+    @available(iOS 26.0, tvOS 26.0, *)
     @objc static var liquidGlassSwitchOffTint: UIColor {
+        #if os(tvOS)
+        return UIColor(white: 0.35, alpha: 1)
+        #else
         switch userInterfaceStyle() {
         case .light:
             return UIColor.systemFill
         default:
             return UIColor.clear
         }
+        #endif
     }
     
     @objc static var liquidGlassSliderMaxTrackTint: UIColor {
+        #if os(tvOS)
+        return UIColor(white: 0.35, alpha: 1)
+        #else
         if #available(iOS 13.0, *) {
             switch userInterfaceStyle() {
             case .light:
@@ -324,5 +343,6 @@ class ThemeManager: NSObject {
         else {
             return UIColor.black
         }
+        #endif
     }
 }

@@ -24,7 +24,9 @@ static const int MAX_ATTEMPTS = 5;
         AppAssetResponse* appAssetResp = [[AppAssetResponse alloc] init];
         [hMan executeRequestSynchronously:[HttpRequest requestForResponse:appAssetResp withUrlRequest:[hMan newAppAssetRequestWithAppId:self.app.id]]];
 
-        if (appAssetResp.data != nil) {
+        // Sunshine may return a short textual error body with HTTP 200 when an
+        // app has no artwork. Never persist that response as an image.
+        if (appAssetResp.data != nil && [appAssetResp getImage] != nil) {
             NSString* boxArtPath = [AppAssetManager boxArtPathForApp:self.app];
             NSLog(@"appImage from host not nil for app: %@", boxArtPath);
 

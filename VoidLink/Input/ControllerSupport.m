@@ -25,6 +25,19 @@
 
 static const double MOUSE_SPEED_DIVISOR = 1.25;
 
+#if TARGET_OS_TV
+@protocol VLTVMotionHandler <NSObject>
+- (void)startMotionControlByControllerButton;
+- (void)stopMotionUpdateWithInterruptNoneGyroInput:(BOOL)interrupt;
+- (void)mixPhysicalLeftStickAndGyroInputWithX:(short)x y:(short)y;
+- (void)mixPhysicalRightStickAndGyroInputWithX:(short)x y:(short)y;
+@end
+
+@protocol VLTVOSCProfilesManager <NSObject>
+- (OSCProfile *)getSelectedProfile;
+@end
+#endif
+
 @interface ControllerSupport()
 
 @property (assign,nonatomic) bool shallDisableGyroHotSwitch;
@@ -75,7 +88,11 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     VoidController *_oscController;
     TemporarySettings* tempSettings;
     OSCProfile* oscProfile;
+#if TARGET_OS_TV
+    id<VLTVOSCProfilesManager> oscProfileMan;
+#else
     OSCProfilesManager* oscProfileMan;
+#endif
 
 #define EMULATING_SELECT     0x1
 #define EMULATING_SPECIAL    0x2
@@ -97,7 +114,11 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     bool _controllerGyroSwitchHoldPressed;
     ControllerGyroSwitchMode _gyroSwitchMode;
 
+#if TARGET_OS_TV
+    __weak id<VLTVMotionHandler> motionHandler;
+#else
     __weak MotionHandler* motionHandler;
+#endif
 }
 
 // UPDATE_BUTTON_FLAG(controller, flag, pressed)
@@ -326,7 +347,11 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
             }
             
 #endif
-            else{
+#if TARGET_OS_TV
+            {
+#else
+            else {
+#endif
                 NSLog(@"controller obj timer update: controller timer ");
                 
                 if (@available(iOS 14.0, *)) {
@@ -602,11 +627,14 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     [_controllerStreamLock lock];
     @synchronized(controller) {
+        // tvOS reserves all physical controller buttons for the remote host.
+#if !TARGET_OS_TV
         // Handle Start+Select+L1+R1 gamepad quit combo
         if (controller.lastButtonFlags == (PLAY_FLAG | BACK_FLAG | LB_FLAG | RB_FLAG)) {
             controller.lastButtonFlags = 0;
             exitRequested = YES;
         }
+#endif
         
         // Only send controller events if we successfully reported controller arrival
         if ([self reportControllerArrival:controller]) {
@@ -661,12 +689,16 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
 
 
 +(BOOL) hasKeyboardOrMouse {
-    if (@available(iOS 14.0, tvOS 14.0, *)) {
+#if !TARGET_OS_TV
+    if (@available(iOS 14.0, *)) {
         return GCMouse.mice.count > 0 || GCKeyboard.coalescedKeyboard != nil;
     }
     else {
         return NO;
     }
+#else
+    return NO;
+#endif
 }
 
 #pragma clang diagnostic push
@@ -1742,7 +1774,11 @@ double rc_expo(double x, double expo) {
     _oscController.playerIndex = 0;
 
     oscProfile = [oscProfileMan getSelectedProfile];
+#if TARGET_OS_TV
+    motionHandler = nil;
+#else
     motionHandler = [MotionHandler sharedWithProfile:oscProfile];
+#endif
     DataManager* dataMan = [[DataManager alloc] init];
     tempSettings = [dataMan getSettings];
 
@@ -1917,6 +1953,17 @@ double rc_expo(double x, double expo) {
             }
             
             // Inform the server of the updated active gamepads before removing this controller
+#if TARGET_OS_TV
+            // A wireless controller may disappear while buttons or axes are active.
+            // Explicitly publish a neutral sample so the host cannot retain stale input.
+            voidController.lastButtonFlags = 0;
+            voidController.lastLeftTrigger = 0;
+            voidController.lastRightTrigger = 0;
+            voidController.lastLeftStickX = 0;
+            voidController.lastLeftStickY = 0;
+            voidController.lastRightStickX = 0;
+            voidController.lastRightStickY = 0;
+#endif
             [self updateFinished:voidController];
             
             // Re-evaluate the on-screen control mode
@@ -1931,8 +1978,8 @@ double rc_expo(double x, double expo) {
         }
     }];
     
-    if (@available(iOS 14.0, tvOS 14.0, *)) {
-        
+#if !TARGET_OS_TV
+    if (@available(iOS 14.0, *)) {
         _mouseConnectObserver = [[NSNotificationCenter defaultCenter] addObserverForName:GCMouseDidConnectNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
             Log(LOG_I, @"Mouse connected!");
             
@@ -1978,7 +2025,8 @@ double rc_expo(double x, double expo) {
         }];
         //for(Controller* controller in _controllers) [self updateTimerStateForController:controller];
     }
-    
+#endif
+
 
     
     _oscController = [[VoidController alloc] init];
@@ -1988,7 +2036,11 @@ double rc_expo(double x, double expo) {
     _controllerMouseEnabledFlag = false;
     
     _gyroEnabledFlag = false;
+#if TARGET_OS_TV
+    oscProfileMan = nil;
+#else
     oscProfileMan = [OSCProfilesManager sharedManager:CGRectZero];
+#endif
 
     [self updateCommonConfig:streamConfig];
     

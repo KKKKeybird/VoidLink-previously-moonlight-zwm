@@ -23,9 +23,46 @@ static const float REFRESH_CYCLE = 1.0f;
     UIImageView* _appImage;
     NSCache* _artCache;
     id<AppCallback> _callback;
+#if TARGET_OS_TV
+    CGAffineTransform _restingTransform;
+    BOOL _hasRestingTransform;
+    BOOL _tvFocused;
+#endif
 }
 
 static UIImage* noImage;
+
+static UIImage *VLCreateAppPlaceholder(CGSize size) {
+    UIGraphicsBeginImageContextWithOptions(size, YES, 0);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    UIColor *topColor = [UIColor colorWithRed:0.10 green:0.20 blue:0.30 alpha:1.0];
+    UIColor *bottomColor = [UIColor colorWithRed:0.04 green:0.08 blue:0.13 alpha:1.0];
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    NSArray *colors = @[(id)topColor.CGColor, (id)bottomColor.CGColor];
+    CGGradientRef gradient = CGGradientCreateWithColors(colorSpace, (__bridge CFArrayRef)colors, NULL);
+    CGContextDrawLinearGradient(context, gradient, CGPointZero, CGPointMake(0, size.height), 0);
+    CGGradientRelease(gradient);
+    CGColorSpaceRelease(colorSpace);
+
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        UIImageSymbolConfiguration *configuration =
+            [UIImageSymbolConfiguration configurationWithPointSize:size.width * 0.34
+                                                             weight:UIImageSymbolWeightMedium];
+        UIImage *computer = [[UIImage systemImageNamed:@"desktopcomputer" withConfiguration:configuration]
+                             imageWithTintColor:[UIColor colorWithWhite:1.0 alpha:0.72]
+                             renderingMode:UIImageRenderingModeAlwaysOriginal];
+        CGSize iconSize = computer.size;
+        CGRect iconRect = CGRectMake((size.width - iconSize.width) / 2.0,
+                                     (size.height - iconSize.height) / 2.0 - size.height * 0.08,
+                                     iconSize.width,
+                                     iconSize.height);
+        [computer drawInRect:iconRect];
+    }
+
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result;
+}
 
 - (id) initWithApp:(TemporaryApp*)app cache:(NSCache*)cache andCallback:(id<AppCallback>)callback {
     self = [super init];
@@ -40,6 +77,13 @@ static UIImage* noImage;
     // having to load it each time
     if (noImage == nil) {
         noImage = [UIImage imageNamed:@"NoAppImage"];
+        if (noImage == nil) {
+#if TARGET_OS_TV
+            noImage = VLCreateAppPlaceholder(CGSizeMake(200, 265));
+#else
+            noImage = VLCreateAppPlaceholder(CGSizeMake(150, 200));
+#endif
+        }
     }
         
 #if TARGET_OS_TV
@@ -52,6 +96,8 @@ static UIImage* noImage;
     
     _appImage = [[UIImageView alloc] initWithFrame:self.frame];
     [_appImage setImage:noImage];
+    _appImage.contentMode = UIViewContentModeScaleAspectFill;
+    _appImage.clipsToBounds = YES;
     
     [self addSubview:_appImage];
     
@@ -75,7 +121,11 @@ static UIImage* noImage;
     [self addTarget:self action:@selector(buttonDeselected:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchCancel | UIControlEventTouchDragExit];
     
 #if TARGET_OS_TV
-    _appImage.adjustsImageWhenAncestorFocused = YES;
+    // Animate the complete card ourselves so the artwork, title strip, and
+    // status overlay move as a single focused item.
+    _appImage.adjustsImageWhenAncestorFocused = NO;
+    self.layer.borderColor = UIColor.clearColor.CGColor;
+    self.layer.borderWidth = 0;
 #else
     // Rasterizing the cell layer increases rendering performance by quite a bit
     // but we want it unrasterized for tvOS where it must be scaled.
@@ -199,7 +249,10 @@ static UIImage* noImage;
     else if(noAppImage){
         if (@available(iOS 13.0, *)) {
             UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:70];
-            UIImage* appIconImage = [[UIImage imageNamed:@"icon-pc-app"] imageWithConfiguration:config];
+            UIImage *appIconImage = [[UIImage imageNamed:@"icon-pc-app"] imageWithConfiguration:config];
+            if (appIconImage == nil) {
+                appIconImage = [UIImage systemImageNamed:@"desktopcomputer" withConfiguration:config];
+            }
             UIImageView* appIcon = [[UIImageView alloc] initWithImage:[appIconImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
             
             //layIcon.tintColor = [ThemeManager.widgetBackgroundColor colorWithAlphaComponent:0.85];
@@ -211,11 +264,19 @@ static UIImage* noImage;
     
     if(true) {
         _appLabel = [[UILabel alloc] init];
-        _appLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
+        _appLabel.backgroundColor =
+#if TARGET_OS_TV
+            _tvFocused ? [UIColor colorWithWhite:0.02 alpha:0.88] :
+#endif
+            [[UIColor blackColor] colorWithAlphaComponent:0.55];
         [_appLabel setTextColor:[[UIColor whiteColor] colorWithAlphaComponent:1]];
         //_appLabel.shadowColor = [UIColor blackColor];
         [_appLabel setText:[_app.name isEqualToString:@"Steam Big Picture"] ? @"Steam" : _app.name];
-        [_appLabel setFont:[UIFont systemFontOfSize:15]];
+        [_appLabel setFont:
+#if TARGET_OS_TV
+            _tvFocused ? [UIFont systemFontOfSize:18 weight:UIFontWeightBold] :
+#endif
+            [UIFont systemFontOfSize:15]];
         [_appLabel setBaselineAdjustment:UIBaselineAdjustmentAlignCenters];
         [_appLabel setTextAlignment:NSTextAlignmentCenter];
         [_appLabel setLineBreakMode:NSLineBreakByWordWrapping];
@@ -233,6 +294,80 @@ static UIImage* noImage;
     [self addSubview:_appLabel];
 #endif
 }
+
+#if TARGET_OS_TV
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window != nil && !self.focused) {
+        _restingTransform = self.transform;
+        _hasRestingTransform = YES;
+        self.superview.clipsToBounds = NO;
+    }
+}
+
+- (void)didUpdateFocusInContext:(UIFocusUpdateContext *)context
+       withAnimationCoordinator:(UIFocusAnimationCoordinator *)coordinator {
+    [super didUpdateFocusInContext:context withAnimationCoordinator:coordinator];
+
+    BOOL gainingFocus = context.nextFocusedView == self;
+    BOOL losingFocus = context.previouslyFocusedView == self;
+    if (!gainingFocus && !losingFocus) {
+        return;
+    }
+
+    [self setTVFocused:gainingFocus coordinator:coordinator];
+}
+
+- (void)setTVFocused:(BOOL)focused
+         coordinator:(UIFocusAnimationCoordinator *)coordinator {
+    if (_tvFocused == focused) {
+        return;
+    }
+
+    if (focused) {
+        _restingTransform = self.transform;
+        _hasRestingTransform = YES;
+    }
+    CGAffineTransform baseTransform = _hasRestingTransform ? _restingTransform : CGAffineTransformIdentity;
+    _tvFocused = focused;
+
+    void (^animations)(void) = ^{
+        if (focused) {
+            CGAffineTransform focusedTransform = CGAffineTransformScale(baseTransform, 1.16, 1.16);
+            self.transform = CGAffineTransformTranslate(focusedTransform, 0, -8.0);
+            self.layer.borderWidth = 4.0;
+            self.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.96].CGColor;
+            self->_appLabel.backgroundColor = [UIColor colorWithWhite:0.02 alpha:0.88];
+            self->_appLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
+            self.superview.layer.zPosition = 20.0;
+            self.superview.layer.shadowColor = UIColor.blackColor.CGColor;
+            self.superview.layer.shadowOffset = CGSizeMake(0, 18);
+            self.superview.layer.shadowRadius = 24.0;
+            self.superview.layer.shadowOpacity = 0.9;
+        } else {
+            self.transform = baseTransform;
+            self.layer.borderWidth = 0;
+            self.layer.borderColor = UIColor.clearColor.CGColor;
+            self->_appLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
+            self->_appLabel.font = [UIFont systemFontOfSize:15];
+            self.superview.layer.zPosition = 0;
+            self.superview.layer.shadowOpacity = 0;
+        }
+    };
+
+    if (coordinator != nil) {
+        [coordinator addCoordinatedAnimations:animations completion:nil];
+    } else {
+        [UIView animateWithDuration:0.22
+                              delay:0
+             usingSpringWithDamping:0.72
+              initialSpringVelocity:0.35
+                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                         animations:animations
+                         completion:nil];
+    }
+}
+#endif
 
 - (void) buttonSelected:(id)sender {
     _appImage.layer.opacity = 0.5f;
@@ -278,7 +413,13 @@ static UIImage* noImage;
     // cells for hidden apps, it makes them look bad when the shadow draws
     // through the app tile.
     // self.superview.layer.shadowOpacity = _app.hidden ? 0.0f : 0.5f;
+#if TARGET_OS_TV
+    if (!_tvFocused) {
+        self.superview.layer.shadowOpacity = 0;
+    }
+#else
     self.superview.layer.shadowOpacity = 0;
+#endif
 
     // Update opacity if neccessary
     [self setAlpha:_app.hidden ? 0.4 : 1.0];

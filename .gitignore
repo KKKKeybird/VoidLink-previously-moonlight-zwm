@@ -1,10 +1,12 @@
 **/xcuserdata/
 **/Moonlight.xcscmblueprint
 **/xcschemes/*.xcscheme
+!VoidLink.xcodeproj/xcshareddata/xcschemes/VoidLinkTV.xcscheme
 .DS_Store
 Build
 DerivedData
 build-home/
+/dist/
 *.xccheckout
 .github
 README.md

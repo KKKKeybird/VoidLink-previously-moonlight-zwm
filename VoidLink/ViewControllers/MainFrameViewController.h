@@ -24,20 +24,20 @@
 
 @property (nonatomic, strong) IBOutlet UIBarButtonItem *settingsButton;
 @property (weak, nonatomic) IBOutlet UIBarButtonItem *profilesButton;
+@property (nonatomic, strong) HostCollectionViewController *hostCollectionVC;
 
 #if !TARGET_OS_TV
 @property (nonatomic, assign) bool settingsExpandedInStreamView;
-@property (nonatomic, strong) HostCollectionViewController *hostCollectionVC;
 @property (weak, nonatomic) IBOutlet UINavigationItem *navigationItem;
 
 
 -(void)expandSettingsView;
 - (void)closeSettingViewAnimated:(BOOL)anaimated;
-- (void)reloadStreamConfig;
 - (bool)isIPhonePortrait;
-- (void)quitRunningApp;
 - (NSInteger)requestForBitrate:(NSInteger)bitrateKbps;
 #endif
+- (void)reloadStreamConfig;
+- (void)quitRunningApp;
 - (void)fillResolutionTable:(CGSize*)resolutionTable externalDisplayMode:(NSInteger)externalDisplayMode;
 - (bool)isIPhone;
 - (void)setNeedsUpdateAllowedOrientation;

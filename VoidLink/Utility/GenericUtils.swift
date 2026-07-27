@@ -20,11 +20,15 @@ import UIKit
     @objc static var hardwareKeyboardAlreadyDetected: Bool = false
     
     @objc static func isHardwareKeyboardConnected() -> Bool {
+        #if os(tvOS)
+        return false
+        #else
         if #available(iOS 14.0, tvOS 14.0, *) {
             hardwareKeyboardAlreadyDetected = GCKeyboard.coalesced != nil
             return GCKeyboard.coalesced != nil
         }
         return false
+        #endif
     }
     
     @objc static func isFirstHardwareKeyboardOrMouseConnection() -> Bool {
@@ -262,6 +266,7 @@ import UIKit
         }
     }
     
+    #if os(iOS)
     @objc static var pencilProPurchaseProcessedWithImportingWidgetTemplates: Bool = false
     @objc static func handleAddOnProductPurchaseIntent(for product:AddOnProduct) {
         let key = "addOnProduct_\(product.productId())_purchased"
@@ -276,6 +281,7 @@ import UIKit
             }
         }
     }
+    #endif
     
     @objc static var hasTappedOnscreenGyroButton = false
     @objc static func isFirstTappingOnscreenGyroButton() -> Bool {
@@ -573,7 +579,7 @@ import UIKit
         return liquidGlassEnabled ? 10 : 0
     }
     
-    @available(iOS 26.0, *)
+    @available(iOS 26.0, tvOS 26.0, *)
     @objc static func applyOffTintColor(_ view: UIView) {
         let name = String(describing: type(of: view))
         if name.contains("UISwitchModernVisualElement") {
@@ -590,6 +596,14 @@ import UIKit
     @objc static var textFieldShouldResignAfterReturn: Bool = false
     
     @objc static func getAtrributedPlaceHolder(text:String)-> NSAttributedString {
+        #if os(tvOS)
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15),
+                .foregroundColor: UIColor.placeholderText
+            ])
+        #else
         if #available(iOS 13.0, *) {
             return NSAttributedString(
                 string: text,
@@ -605,6 +619,7 @@ import UIKit
                     .foregroundColor: UIColor.lightText
                 ])
         }
+        #endif
     }
     
     static var kScaleLayerKey: UInt8 = 0
@@ -677,6 +692,9 @@ import UIKit
     }
     
     @objc static func isLandscape() -> Bool {
+        #if os(tvOS)
+        return GenericUtils.screenWidth > GenericUtils.screenHeight
+        #else
         if #available(iOS 13.0, *) {
             guard let windowScene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })
@@ -685,6 +703,7 @@ import UIKit
             return windowScene.interfaceOrientation.isLandscape
         }
         else {return GenericUtils.screenWidth > GenericUtils.screenHeight}
+        #endif
     }
     
     @objc static func viewIsLandscape(_ view: UIView?) -> Bool {

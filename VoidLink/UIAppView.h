@@ -32,5 +32,9 @@
 
 - (id) initWithApp:(TemporaryApp*)app cache:(NSCache*)cache andCallback:(id<AppCallback>)callback;
 - (void) updateAppImage;
+#if TARGET_OS_TV
+- (void)setTVFocused:(BOOL)focused
+         coordinator:(UIFocusAnimationCoordinator *)coordinator;
+#endif
 
 @end

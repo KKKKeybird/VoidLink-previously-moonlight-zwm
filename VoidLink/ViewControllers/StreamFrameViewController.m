@@ -83,9 +83,11 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     NSTimer *_inactivityTimer;
     NSTimer *_statsUpdateTimer;
     PaddedLabel *_overlayView;
+#if !TARGET_OS_TV
     UITapGestureRecognizer *_menuTapGestureRecognizer;
     UITapGestureRecognizer *_menuDoubleTapGestureRecognizer;
     UITapGestureRecognizer *_playPauseTapGestureRecognizer;
+#endif
     uint16_t overlayLevel;
     UILabel *_stageLabel;
     UILabel *_tipLabel;
@@ -111,7 +113,9 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     dispatch_block_t _delayedRemoveExtScreen;
     VideoDecoderRenderer *_videoRenderer;
     BOOL _isRestoringFromPiP;
+#if !TARGET_OS_TV
     SafeTimer* safeTimer;
+#endif
 
 #if !TARGET_OS_TV
     CustomEdgeSlideGestureRecognizer *_slideToSettingsRecognizer;
@@ -126,10 +130,12 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     UITapGestureRecognizer *_menuTapGestureRecognizer;
     UITapGestureRecognizer *_menuDoubleTapGestureRecognizer;
     UITapGestureRecognizer *_playPauseTapGestureRecognizer;
+    UIAlertController *_controllerReconnectAlert;
 #endif
 
 }
 
+#if !TARGET_OS_TV
 - (void)pictureInPictureControllerWillStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController {
     _streamView.hidden = YES;
     if (self.imguiView) {
@@ -664,6 +670,62 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     NSLog(@"frameview gestures: %d", (uint32_t)[self.view.gestureRecognizers count]);
     NSLog(@"streamview gestures: %d", (uint32_t)[_streamView.gestureRecognizers count]);
 }
+#else
+- (bool)isOnScreenWidgetEnabled {
+    return false;
+}
+
+- (void)reConfigStreamViewRealtime {
+    _settings = [[[DataManager alloc] init] getSettings];
+    overlayLevel = _settings.statsOverlayLevel.intValue;
+    [self setupOverlayView];
+    [self.mainFrameViewcontroller reloadStreamConfig];
+    [_controllerSupport updateControllerSupport:self.streamConfig delegate:self];
+    [_streamView setupStreamViewWithControllerSupport:_controllerSupport
+                                  interactionDelegate:self
+                                         streamConfig:self.streamConfig
+                                          gameProfile:nil
+                              streamFrameTopLayerView:self.view];
+    Connection.muteInBackground = _settings.muteInBackground;
+
+    [_statsUpdateTimer invalidate];
+    _statsUpdateTimer = nil;
+    if (_settings.statsOverlayEnabled) {
+        _statsUpdateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                            target:self
+                                                          selector:@selector(updateStatsOverlay)
+                                                          userInfo:nil
+                                                           repeats:YES];
+    } else {
+        [_overlayView removeFromSuperview];
+    }
+
+    if (self.imguiView && self.imguiView.mtkView) {
+        [self.imguiView stop];
+        [self.imguiView.mtkView removeFromSuperview];
+    }
+    self.imguiView = [[ImGuiRenderer alloc] initWithFrame:self.view.bounds
+                                                streamFps:_settings.framerate.intValue
+                                             enableGraphs:_settings.enableGraphs
+                                             graphOpacity:_settings.graphOpacity.intValue];
+    self.imguiView.mtkView.userInteractionEnabled = NO;
+    [self.view addSubview:self.imguiView.mtkView];
+}
+
+- (void)reConfigStreamViewRealtimeAndReloadSettings:(BOOL)reloadSettings
+                              reloadOnscreenWidgets:(BOOL)reloadOnscreenWidgets {
+    (void)reloadSettings;
+    (void)reloadOnscreenWidgets;
+    [self reConfigStreamViewRealtime];
+}
+
+- (UIView *)streamContentContainerView {
+    return _streamView;
+}
+
+- (void)syncMagnifierStateFromScrollView {
+}
+#endif
 
 - (void)viewWillAppear:(BOOL)animated {
     // if(_settings.sendDummyEvent) [self startTimer];
@@ -679,6 +741,9 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     _viewJustLoaded = false;
     _deviceWindow = self.view.window;
     previousOnScreenWidgetEnabled = [_streamView isOnScreenWidgetEnabled];
+#if TARGET_OS_TV
+    [_streamView insertSubview:_streamVideoRenderView atIndex:0];
+#else
     if (@available(iOS 13.0, *)) {
         UIScreen *currentScreen = self.view.window.windowScene.screen;
         if (UIScreen.screens.count > 1 && [self isAirPlayEnabled] && currentScreen == UIScreen.mainScreen) {
@@ -699,6 +764,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         [self->_streamView insertSubview:self->_streamVideoRenderView atIndex:0];
         // Fallback on earlier versions
     }
+#endif
 
     self->_streamView.originalFrame = self->_streamView.frame;
     
@@ -772,7 +838,40 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 #if TARGET_OS_TV
-- (void)controllerPauseButtonPressed:(id)sender { }
+- (void)controllerPauseButtonPressed:(id)sender {
+    (void)sender;
+    if (self.presentedViewController != nil) {
+        return;
+    }
+
+    UIAlertController *pause = [UIAlertController alertControllerWithTitle:@"串流已暂停"
+                                                                    message:@"使用 Siri Remote 操作本地串流菜单；实体手柄按键会继续透传给主机。"
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+    [pause addAction:[UIAlertAction actionWithTitle:@"继续" style:UIAlertActionStyleCancel handler:nil]];
+    [pause addAction:[UIAlertAction actionWithTitle:_settings.statsOverlayEnabled ? @"隐藏统计" : @"显示统计"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        self->_settings.statsOverlayEnabled = !self->_settings.statsOverlayEnabled;
+        if (self->_settings.statsOverlayEnabled) {
+            self->_statsUpdateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                                       target:self
+                                                                     selector:@selector(updateStatsOverlay)
+                                                                     userInfo:nil
+                                                                      repeats:YES];
+        } else {
+            [self->_statsUpdateTimer invalidate];
+            self->_statsUpdateTimer = nil;
+            [self->_overlayView removeFromSuperview];
+        }
+    }]];
+    [pause addAction:[UIAlertAction actionWithTitle:@"断开连接" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self returnToMainFrame];
+    }]];
+    [pause addAction:[UIAlertAction actionWithTitle:@"退出远程应用" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self disconnectAndQuitApp];
+    }]];
+    [self presentViewController:pause animated:YES completion:nil];
+}
 - (void)controllerPauseButtonDoublePressed:(id)sender {
     Log(LOG_I, @"Menu double-pressed -- backing out of stream");
     [self returnToMainFrame];
@@ -861,7 +960,11 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     [_spinner startAnimating];
     _spinner.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2 - _stageLabel.frame.size.height - _spinner.frame.size.height);
     
+#if TARGET_OS_TV
+    _oscProfile = nil;
+#else
     _oscProfile = [[OSCProfilesManager sharedManager:CGRectZero] getSelectedProfile];
+#endif
     
     _controllerSupport = [[ControllerSupport alloc] initWithConfig:self.streamConfig delegate:self];
     _inactivityTimer = nil;
@@ -871,10 +974,11 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     _streamViewMagnifierZoomScale = 1.0f;
     _magnifierViewportInteractionActive = NO;
     
+#if !TARGET_OS_TV
     toolBoxViewController = [[ToolboxViewController alloc] init];
     toolBoxViewController.specialEntryDelegate = self;
-
     _isRestoringFromPiP = NO;
+#endif
 
     /*
      _settings.externalDisplayMode.intValue:
@@ -889,7 +993,9 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     //[_streamView setupStreamView:_controllerSupport interactionDelegate:self config:self.streamConfig];
     [self reConfigStreamViewRealtime]; // call this method again to make sure all gestures are configured & added to the superview(self.view), including the gestures added from inside the streamview.
     
+#if !TARGET_OS_TV
     if([self isFirstStreaming] || GenericUtils.isFirstStreamingOnMac) [self popFirstStreamingTip];
+#endif
 
 #if TARGET_OS_TV
     if (!_menuTapGestureRecognizer || !_menuDoubleTapGestureRecognizer || !_playPauseTapGestureRecognizer) {
@@ -918,7 +1024,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     [_tipLabel setUserInteractionEnabled:NO];
     
 #if TARGET_OS_TV
-    [_tipLabel setText:@"Tip: Tap the Play/Pause button on the Apple TV Remote to disconnect from your PC"];
+    [_tipLabel setText:@"提示：按下 Apple TV 遥控器的播放／暂停键可断开电脑连接"];
 #else
     // [_tipLabel setText:[LocalizationHelper localizedStringForKey:@"Tip: Swipe from screen edge to a certiain distance (configured by Swipe & Exit settings) to disconnect from your PC"]];
 #endif
@@ -949,10 +1055,12 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
                                                  name: UIApplicationDidEnterBackgroundNotification
                                                object: nil];
     
+#if !TARGET_OS_TV
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(gameProfileSelectorClosed)
                                                  name:@"GameProfileSelectorCloseNotification"
                                                object:nil];
+#endif
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleStreamAspectRatioChanged:)
@@ -998,15 +1106,17 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         [self.metalViewController didMoveToParentViewController:self];
     }
         
+#if !TARGET_OS_TV
     OnScreenWidgetView.gamepadArrivalReported = false;
-    
     OnScreenWidgetView.enableFolderAnimation = false;
     dispatch_time_t delay = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC));
     dispatch_after(delay, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         OnScreenWidgetView.enableFolderAnimation = true;
     });
+#endif
 }
 
+#if !TARGET_OS_TV
 - (void)keyboardWillShow:(NSNotification *)notification{
     [_streamView keyboardWillShow:notification];
 }
@@ -1172,6 +1282,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     [self reConfigStreamViewRealtimeAndReloadSettings:NO reloadOnscreenWidgets:_settings.onscreenControls.intValue == OnScreenControlsLevelCustom];
     // [self->_streamView reloadGameProfile:nil reloadWidgets:true]; //update keyboard buttons here
 }
+#endif
 
 - (void)handleStreamAspectRatioChanged:(NSNotification *)notification {
     NSNumber *aspectRatioNum = notification.userInfo[@"aspectRatio"];
@@ -1179,15 +1290,19 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         CGFloat aspectRatio = [aspectRatioNum doubleValue];
         Log(LOG_I, @"Updating StreamView aspect ratio to %.4f", aspectRatio);
         _streamView.streamAspectRatio = aspectRatio;
+#if !TARGET_OS_TV
         _streamView.pencilHandler.streamAspectRatio = aspectRatio;
+#endif
     }
 }
 
 - (void)setUserInteractionEnabledForStreamView:(bool)enabled{
     _streamView.userInteractionEnabled = enabled;
+#if !TARGET_OS_TV
     for(UIView* view in self.view.subviews){
         if([view isKindOfClass:[OnScreenWidgetView class]]) view.userInteractionEnabled = enabled;
     }
+#endif
 }
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView {
@@ -1226,14 +1341,18 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
             self.metalViewController = nil;
             NSLog(@"Metal renderer stopped and cleaned up.");
         }
+#if !TARGET_OS_TV
         [NativeTouchPointer cleanUpContext];
+#endif
         [[NSNotificationCenter defaultCenter] removeObserver:self];
         for(UIView* view in self.view.subviews){
             [view removeFromSuperview];
         }
         
+#if !TARGET_OS_TV
         [safeTimer pause];
         [safeTimer clean];
+#endif
     }
 }
 
@@ -1335,13 +1454,16 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 - (void) returnToMainFrame {
+#if !TARGET_OS_TV
     [_streamView saveStreamingGameProfileChanges];
     [_streamView clearOnScreenWidgets];
     if(micHandler) [micHandler clean];
     PencilHandler.shared = nil;
+#endif
     
     // Reset display mode back to default
     [self updatePreferredDisplayMode:NO];
+#if !TARGET_OS_TV
     if (@available(iOS 13.0, *)) {
         [SceneDelegate clearExternalDisplayRenderView];
     }
@@ -1360,8 +1482,16 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     if(_streamConfig.redirectMic) [micHandler stopTappingWithStopEngine:true];
 
     self.mainFrameViewcontroller.settingsExpandedInStreamView = false; // reset this flag to false
+#else
+    [_statsUpdateTimer invalidate];
+    _statsUpdateTimer = nil;
+    [_controllerSupport cleanup];
+    [_streamMan stopStream];
+    [self.navigationController popToRootViewControllerAnimated:NO];
+#endif
 }
 
+#if !TARGET_OS_TV
 // External Screen connected
 - (void)extScreenDidConnect:(NSNotification *)notification {
     Log(LOG_I, @"External Screen Connected");
@@ -1428,6 +1558,18 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         }
     }
 }
+#else
+- (BOOL)isAirPlaying {
+    return NO;
+}
+
+- (BOOL)isAirPlayEnabled {
+    return NO;
+}
+
+- (void)reloadAirPlayConfig {
+}
+#endif
 
 - (void) handleViewResize{
     viewIsBeingResized = true;
@@ -1476,6 +1618,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification {
+#if !TARGET_OS_TV
     if(!GenericUtils.isIPhone){
         for(OnScreenWidgetView* widget in OnScreenWidgetView.mapping.allValues){
             if(widget.parentSequence != -1 && !widget.autoDockEnabled) continue;
@@ -1492,6 +1635,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
             });
         }
     }
+#endif
     
     appDidEnterBackgroundWithoutPip = false;
     [_streamMan setNeedRequeuing:true];
@@ -1529,6 +1673,11 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 
 // This fires when the home button is pressed
 - (void)applicationDidEnterBackground:(UIApplication *)application {
+#if TARGET_OS_TV
+    (void)application;
+    [self returnToMainFrame];
+    return;
+#else
     NSLog(@"did enter background, %d, %@, %d", _settings.enablePIP, self.pipController, self.pipController.isPictureInPictureActive);
     if (_settings.enablePIP && self.pipController && self.pipController.isPictureInPictureActive) {
         //Log(LOG_I, @"PIP is active, not terminating stream");
@@ -1561,11 +1710,10 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
                                 userInfo:nil
                                  repeats:NO];
 
-#if !TARGET_OS_TV
-
 #endif
 }
 
+#if !TARGET_OS_TV
 - (void)expandSettingsView{
     self.mainFrameViewcontroller.settingsExpandedInStreamView = true; //notify mainFrameViewContorller that this is a setting expansion in stream view, some settings shall be disabled.
     [_streamView saveStreamingGameProfileChanges];
@@ -1580,6 +1728,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     } */
     [self expandSettingsView];  // expand settings view in other cases;
 }
+#endif
 
 - (void)disconnectRemoteSession {
     Log(LOG_I, @"Settings view disconnect the session in stream view");
@@ -1729,6 +1878,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 
 - (void) stageComplete:(const char*)stageName {
     _micStreamInitialized = false;
+#if !TARGET_OS_TV
     if(strcmp(stageName, "mic stream establishment")==0){
         if(self->_streamConfig.redirectMic){
             dispatch_time_t delay = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC));
@@ -1744,8 +1894,10 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     if(strcmp(stageName, "mic stream unsupported or unintialized")==0){
         _micStreamInitialized = false;
     }
+#endif
     
-    // 8bit 444 degration workaround
+    // 8bit 444 degradation workaround is an iOS-only local shortcut.
+#if !TARGET_OS_TV
     if(strcmp(stageName, "video stream establishment")==0){
         NSLog(@"sendAutoReleaseComboCommandWithCmdStrings %f", CACurrentMediaTime());
         if(!_settings.enableHdr
@@ -1765,6 +1917,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
             });
         }
     }
+#endif
 }
 
 - (void) stageFailed:(const char*)stageName withError:(int)errorCode portTestFlags:(int)portTestFlags {
@@ -1908,6 +2061,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         [self->_spinner stopAnimating];
         [self.view setBackgroundColor:[UIColor blackColor]];
 
+#if !TARGET_OS_TV
         if (@available(iOS 15.0, *)) {
             if (self->_settings.enablePIP) {
                 if (self->_streamMan && self->_streamMan.videoRenderer) {
@@ -1918,6 +2072,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
                 }
             }
         }
+#endif
     });
 }
 
@@ -1928,7 +2083,33 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 - (void)gamepadPresenceChanged {
-#if !TARGET_OS_TV
+#if TARGET_OS_TV
+    BOOL controllerConnected = NO;
+    for (GCController *controller in GCController.controllers) {
+        if (controller.extendedGamepad != nil) {
+            controllerConnected = YES;
+            break;
+        }
+    }
+
+    if (controllerConnected) {
+        if (_controllerReconnectAlert != nil) {
+            [_controllerReconnectAlert dismissViewControllerAnimated:YES completion:nil];
+            _controllerReconnectAlert = nil;
+        }
+    } else if (_controllerReconnectAlert == nil && self.presentedViewController == nil) {
+        _controllerReconnectAlert = [UIAlertController alertControllerWithTitle:@"手柄已断开"
+                                                                         message:@"已停止发送手柄输入。请重新连接实体游戏手柄后继续。"
+                                                                  preferredStyle:UIAlertControllerStyleAlert];
+        __weak typeof(self) weakSelf = self;
+        [_controllerReconnectAlert addAction:[UIAlertAction actionWithTitle:@"断开串流"
+                                                                      style:UIAlertActionStyleDestructive
+                                                                    handler:^(__unused UIAlertAction *action) {
+            [weakSelf returnToMainFrame];
+        }]];
+        [self presentViewController:_controllerReconnectAlert animated:YES completion:nil];
+    }
+#else
     if (@available(iOS 11.0, *)) {
         [self setNeedsUpdateOfHomeIndicatorAutoHidden];
     }
@@ -2052,6 +2233,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 */
 
+#if !TARGET_OS_TV
 - (void)startAccelUpdate{
     [_motionHandler startAccelUpdate];
 }
@@ -2110,6 +2292,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
                                    completion:^{}];
     }
 }
+#endif
 
 #if !TARGET_OS_TV
 // Require a confirmation when streaming to activate a system gesture
@@ -2148,7 +2331,17 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
     [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
-    
+
+#if TARGET_OS_TV
+    [coordinator animateAlongsideTransition:^(__unused id<UIViewControllerTransitionCoordinatorContext> context) {
+        self->_streamView.frame = CGRectMake(0, 0, size.width, size.height);
+        self->_streamVideoRenderView.frame = self->_streamView.bounds;
+        self.metalViewController.view.frame = self->_streamView.bounds;
+        self.imguiView.mtkView.frame = self->_streamView.bounds;
+    } completion:^(__unused id<UIViewControllerTransitionCoordinatorContext> context) {
+        [self->_streamMan setNeedRequeuing:true];
+    }];
+#else
     [self resetMagnifierStreamViewWithAnimated:false];
     
     // handle view size change for on-screen widgets
@@ -2182,6 +2375,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
     dispatch_after(delay, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         [self->_streamMan setNeedRequeuing:true];
     });
+#endif
 
     /*
     if (_isRestoringFromPiP) {
@@ -2206,13 +2400,18 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 - (void)controllerArrivalWithPlayerIndex:(int8_t)index{
+#if !TARGET_OS_TV
     if(index == 0 && _oscProfile.gamepadOverlayEnabled){
         if (@available(iOS 13.0, *)) {
             [self loadAbstractGamepadOverlayIfNeeded];
         }
     }
+#else
+    (void)index;
+#endif
 }
 
+#if !TARGET_OS_TV
 - (void)toggleGamepadOverlayWithOverlayEnabled:(BOOL)overlayEnabled API_AVAILABLE(ios(13.0)){
     OnScreenWidgetView.gamepadOverlayFLag = overlayEnabled;
     OnScreenWidgetView.profileChangedDuringStreaming = true;
@@ -2253,6 +2452,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
         self->_virtualGamepadOverlay = overlayView;
     });
 }
+#endif
 
 
 - (void)dealloc {
@@ -2260,6 +2460,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
 }
 
 - (void)setupTimer {
+#if !TARGET_OS_TV
     TemporarySettings* tempSettings = [[[DataManager alloc] init] getSettings];  //StreamFrameViewController retrieve the settings here.
     safeTimer = [[SafeTimer alloc] initWithInterval:1.0/tempSettings.framerate.intValue delay:0 queueLabel:@"streamview.timer" handler:^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
@@ -2267,6 +2468,7 @@ static NSString* VLTerminationHintForErrorCode(int errorCode) {
             // LiSendTouchEvent(LI_TOUCH_EVENT_UP, 200, 1, 1, 0, 0, 0, 0);
         });
     }];
+#endif
 }
 
 @end

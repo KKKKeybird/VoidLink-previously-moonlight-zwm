@@ -10,6 +10,52 @@
 //
 
 #import "StreamView.h"
+
+#if TARGET_OS_TV
+
+@implementation StreamView
+
+- (void)setupStreamViewWithControllerSupport:(ControllerSupport *)controllerSupport
+                         interactionDelegate:(id<UserInteractionDelegate>)interactionDelegate
+                                streamConfig:(StreamConfiguration *)streamConfig
+                                 gameProfile:(OSCProfile *)profile
+                     streamFrameTopLayerView:(UIView *)topLayerView {
+    (void)controllerSupport;
+    (void)streamConfig;
+    (void)profile;
+    self.interactionDelegate = interactionDelegate;
+    self.streamFrameTopLayerView = topLayerView;
+}
+
+- (void)cleanUp {}
+- (void)reloadLegacyWidgets:(OSCProfile *)profile { (void)profile; }
+- (void)setOnScreenControls {}
+- (void)disableOnScreenControls {}
+- (void)reloadOnScreenControlsRealtimeWithControllerSupport:(ControllerSupport *)controllerSupport streamConfig:(StreamConfiguration *)streamConfig { (void)controllerSupport; (void)streamConfig; }
+- (void)reloadOnScreenControlsWith:(ControllerSupport *)controllerSupport andConfig:(StreamConfiguration *)streamConfig { (void)controllerSupport; (void)streamConfig; }
+- (void)clearOnScreenWidgets {}
+- (void)reloadGameProfile:(OSCProfile *)profile reloadWidgets:(bool)reloadWidgets { (void)profile; (void)reloadWidgets; }
+- (void)saveStreamingGameProfileChanges {}
+- (bool)isOnScreenWidgetEnabled { return false; }
+- (CGSize)getVideoAreaSize { return self.bounds.size; }
+- (CGPoint)adjustCoordinatesForVideoArea:(CGPoint)point { return point; }
+- (uint16_t)getRotationFromAzimuthAngle:(float)azimuthAngle { (void)azimuthAngle; return 0; }
+- (OnScreenControlsLevel)getCurrentOscState { return OnScreenControlsLevelOff; }
+- (void)readyToBringUpSoftKeyboardByToolbox {}
+- (void)keyboardWillShow:(NSNotification *)notification { (void)notification; }
+- (void)keyboardWillHide {}
+- (void)handleNonStandardKeyboard:(NSNotification *)notification { (void)notification; }
+- (void)liftMetalVideoViewIfNeeded:(CGFloat)liftHeight { (void)liftHeight; }
+- (void)alterAbsTouchDragWith:(int32_t)mouseButton { (void)mouseButton; }
+- (void)enablePencilHover {}
+- (void)disablePencilHover {}
+- (void)setAllowSingleTouchEnabled:(BOOL)enabled { (void)enabled; }
+- (void)toggleTouchDisabled:(bool)disabled { (void)disabled; }
+
+@end
+
+#else
+
 #include <Limelight.h>
 #import "DataManager.h"
 #import "TemporarySettings.h"
@@ -1811,3 +1857,5 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 #endif
 
 @end
+
+#endif

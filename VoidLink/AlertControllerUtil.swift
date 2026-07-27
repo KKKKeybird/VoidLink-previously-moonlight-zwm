@@ -21,7 +21,7 @@ import UIKit
         return "\(baseMessage)\n\n\(countdownText)"
     }
 
-    @available(iOS 13.0, *)
+    @available(iOS 13.0, tvOS 13.0, *)
     private static func makeLeftAlignedAttributedText(_ text: String, role: AlertTextRole) -> NSAttributedString {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .left
@@ -50,10 +50,10 @@ import UIKit
     }
 
     private static func applyLeftAlignment(title: String?, message: String?) {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, tvOS 26.0, *) {
             return
         }
-        if #available(iOS 13.0, *) {
+        if #available(iOS 13.0, tvOS 13.0, *) {
             if let title, !title.isEmpty {
                     alertController.setValue(makeLeftAlignedAttributedText(title, role: .title), forKey: "attributedTitle")
             }
@@ -112,7 +112,10 @@ import UIKit
             cancelButtonString = "Cancel"
         }
         
-        let cancelAction = UIAlertAction(title: LocalizationHelper.localizedString(forKey: cancelButtonString), style: .cancel) { _ in
+        let localizedCancelTitle = Bundle.main.localizedString(forKey: cancelButtonString,
+                                                                value: cancelButtonString,
+                                                                table: nil)
+        let cancelAction = UIAlertAction(title: localizedCancelTitle, style: .cancel) { _ in
             isAlertDismissed = true
             actionCancelled = true
             completion?()
